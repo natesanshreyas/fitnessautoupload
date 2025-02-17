@@ -10,12 +10,12 @@ This script extracts nutrition data from **Cronometer** and automatically update
 
 ### 1️⃣ Clone the Repository  
 ```bash
-git clone <YOUR_GITHUB_REPO_URL>
-cd <YOUR_REPO_FOLDER>
+git clone fitnessautoupload
+cd fitnessautoupload
 ```
 
 ### 2️⃣ Install Dependencies  
-Ensure you have **Python 3.** installed, then install the required packages:  
+Ensure you have **Python 3.9 - 3.12 installed, then install the required packages:  
 ```bash
 pip install -r requirements.txt
 ```
@@ -59,9 +59,3 @@ Your Google Sheet will be updated automatically with the latest Cronometer data!
 ## 📜 License  
 This script is open-source. Feel free to modify and improve it!
 
----
-
-Happy tracking! 🎯📊
-```
-
-This README is **clear, structured, and user-friendly**—let me know if you want any tweaks! 🚀
