@@ -1,0 +1,6 @@
+numpy==1.21.6
+pandas==1.5.3
+wearipedia==0.1.3
+google-auth==2.16.0
+google-auth-oauthlib==0.7.1
+google-api-python-client==2.89.0
