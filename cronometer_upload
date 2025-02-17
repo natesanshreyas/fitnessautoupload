@@ -1,0 +1,173 @@
+#!/usr/bin/env python3
+import os
+import pandas as pd
+import wearipedia
+from datetime import datetime
+import csv
+from google.auth.transport.requests import Request
+from google.oauth2.credentials import Credentials
+from google_auth_oauthlib.flow import InstalledAppFlow
+from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError
+from google.oauth2 import service_account
+
+# Optional: Show all columns/rows when printing DataFrames (for debugging)
+pd.set_option("display.max_columns", None)
+pd.set_option("display.max_rows", None)
+
+def crono_to_csv():
+    print("Starting crono_to_csv()...")
+
+    # ================================
+    # 1. Setup: Define Credentials and Dates
+    # ================================
+    email_address = "Your cronometer username"  # Your email
+    password = "Your cronometer password."              # Your password
+
+    # Use valid dates for which data exists.
+    start_date_str = '2025-01-27'
+    end_date_str = '2025-12-31'
+    start_date = datetime.strptime(start_date_str, '%Y-%m-%d')
+    end_date = datetime.strptime(end_date_str, '%Y-%m-%d')
+    synthetic = False  # Set to True if you want to skip real authentication (for testing)
+
+    # ================================
+    # 2. Connect to Cronometer via Wearipedia
+    # ================================
+    print("Getting device...")
+    device = wearipedia.get_device("cronometer/cronometer")
+    if not synthetic:
+        print("Authenticating...")
+        device.authenticate({"username": email_address, "password": password})
+        print("Authentication successful")
+    
+    params = {"start_date": start_date_str, "end_date": end_date_str}
+    print("Fetching servings data...")
+    servings = device.get_data("servings", params=params)
+    print("Fetching biometrics data...")
+    biometrics = device.get_data("biometrics", params=params)
+    
+    # Debug: Print number of entries returned
+    print("Number of servings entries returned:", len(servings))
+    print("Number of biometrics entries returned:", len(biometrics))
+    
+    # Convert raw data to DataFrames
+    servings_df = pd.DataFrame(servings)
+    biometrics_df = pd.DataFrame(biometrics)
+    
+    # If a DataFrame is empty, create a dummy row so merging can proceed
+    if servings_df.empty:
+        print("Servings DataFrame is empty; creating dummy row.")
+        servings_df = pd.DataFrame([{
+            "Day": start_date_str,
+            "Energy (kcal)": None,
+            "Fat (g)": None,
+            "Protein (g)": None,
+            "Net Carbs (g)": None
+        }])
+    if biometrics_df.empty:
+        print("Biometrics DataFrame is empty; creating dummy row.")
+        biometrics_df = pd.DataFrame([{
+            "Day": start_date_str,
+            "Amount": None
+        }])
+    
+    # -------------------------------
+    # Convert date columns to datetime objects
+    # -------------------------------
+    servings_df['Day'] = pd.to_datetime(servings_df['Day'])
+    biometrics_df['Day'] = pd.to_datetime(biometrics_df['Day'])
+    
+    # Rename the biometrics column "Amount" to "Weight"
+    biometrics_df.rename(columns={'Amount': 'Weight'}, inplace=True)
+    
+    # -------------------------------
+    # Merge DataFrames by Date (raw merged data)
+    # -------------------------------
+    merged_df = pd.merge(servings_df, biometrics_df, on='Day', how='outer').sort_values(by='Day')
+    
+    # -------------------------------
+    # Create a full date range DataFrame and merge to include missing days
+    # -------------------------------
+    full_dates_df = pd.DataFrame({
+        'Day': pd.date_range(start=start_date_str, end=end_date_str, freq='D')
+    })
+    merged_df = pd.merge(full_dates_df, merged_df, on='Day', how='left').sort_values(by='Day')
+    
+    print("\nMerged DataFrame (with full date range):")
+    print(merged_df)
+    
+    # -------------------------------
+    # Aggregate data by day to create a daily summary
+    # -------------------------------
+    daily_summary = merged_df.groupby('Day').agg({
+         "Energy (kcal)": "sum",
+         "Fat (g)": "sum",
+         "Protein (g)": "sum",
+         "Net Carbs (g)": "sum",
+         "Weight": "last"
+    }).reset_index()
+
+    # Optionally, convert numerical values to int when not NaN
+    daily_summary["Energy (kcal)"] = daily_summary["Energy (kcal)"].apply(lambda x: int(x) if pd.notna(x) else x)
+    daily_summary["Fat (g)"] = daily_summary["Fat (g)"].apply(lambda x: int(x) if pd.notna(x) else x)
+    daily_summary["Protein (g)"] = daily_summary["Protein (g)"].apply(lambda x: int(x) if pd.notna(x) else x)
+    daily_summary["Net Carbs (g)"] = daily_summary["Net Carbs (g)"].apply(lambda x: int(x) if pd.notna(x) else x)
+    daily_summary["Weight"] = daily_summary["Weight"].apply(lambda x: int(x) if pd.notna(x) else x)
+    
+    print("\nDaily Summary (aggregated):")
+    print(daily_summary)
+    
+    # -------------------------------
+    # Select and rename columns
+    # -------------------------------
+    final_df = daily_summary[["Day", "Weight", "Fat (g)", "Net Carbs (g)", "Protein (g)", "Energy (kcal)"]].copy()
+    final_df.rename(columns={"Energy (kcal)": "Calories"}, inplace=True)
+    
+    # Format the date column as a string for CSV output
+    final_df["Day"] = final_df["Day"].dt.strftime("%Y-%m-%d")
+    
+    print("\nFinal DataFrame to be exported:")
+    print(final_df)
+    
+    # -------------------------------
+    # Export to CSV
+    # -------------------------------
+    output_path = "crono_csv.csv"
+    final_df.to_csv(output_path, index=False)
+    print(f"\nData successfully written to {output_path}")
+    
+    return final_df
+
+def update_google_sheet(final_df):
+    SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
+    SPREADSHEET_ID = "XXXX"
+    RANGE_NAME = "Sheet name"  # Change as needed
+    SERVICE_ACCOUNT_FILE = "XXX.json"  # Ensure this file is copied into your container
+
+    # Use the service account credentials
+    creds = service_account.Credentials.from_service_account_file(
+        SERVICE_ACCOUNT_FILE, scopes=SCOPES
+    )
+
+    try:
+        service = build("sheets", "v4", credentials=creds)
+        # Replace NaN values with an empty string, as NaNs are invalid in JSON
+        final_df_clean = final_df.fillna("")
+        values = final_df_clean.values.tolist()
+        body = {'values': values}
+        result = service.spreadsheets().values().update(
+            spreadsheetId=SPREADSHEET_ID,
+            range=RANGE_NAME,
+            valueInputOption="USER_ENTERED",
+            body=body
+        ).execute()
+
+        print(f"{result.get('updatedCells')} cells updated in the Google Sheet.")
+
+    except HttpError as err:
+        print(err)
+
+if __name__ == '__main__':
+    final_df = crono_to_csv()
+    update_google_sheet(final_df)
