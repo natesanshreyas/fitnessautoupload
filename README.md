@@ -1,5 +1,4 @@
-Here’s a **README.md** file for your Cronometer script:  
-
+Readme
 ---
 
 ```markdown
