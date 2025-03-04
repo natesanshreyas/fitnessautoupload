@@ -64,8 +64,8 @@ def mfp_to_csv():
     SCOPES = ["https://www.googleapis.com/auth/spreadsheets"]
 
     # The ID and range of the spreadsheet
-    SPREADSHEET_ID = "1YcpbP-R90caUwBJyyj6ACdYR7p8bmep5tYu7sYSPcJs"
-    RANGE_NAME = "Current Overall Protocol 2025!B62"  # Change this to the range where you want to write data
+    SPREADSHEET_ID = "XXX"
+    RANGE_NAME = "XXX!XXX"  # Change this to the range where you want to write data
 
     def main():
         """Shows basic usage of the Sheets API.
